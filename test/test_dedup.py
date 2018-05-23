@@ -3,6 +3,7 @@
 # http://mozilla.org/MPL/2.0/.
 """Unit tests for dedup.py"""
 import io
+import os
 import sys
 from pathlib import Path
 from typing import Iterable, List
@@ -108,27 +109,27 @@ def test_report_from_stats(capsys):
         capsys: pytest stdout capture fixture
     """
     stats = dd.DedupStats()
-    p = Path('/home/users/someone/desktop/wallpaper')
-    t1 = stats.dir_stats[p]
-    t1.directory = str(p)
+    p1 = Path('/home/users/someone/desktop/wallpaper')
+    t1 = stats.dir_stats[p1]
+    t1.directory = str(p1)
     t1.is_target_dir = True
     t1.dup_file_size = int(123.1 * 2 ** 20)
     t1.dup_file_count = 112_300
     t1.total_dir_count = 20
     t1.total_file_count = t1.dup_file_count + 123
 
-    p = Path(r'\\server-name\share\username\LongNameabc\Vacation\Photos')
-    t2 = stats.dir_stats[p]
-    t2.directory = str(p)
+    p2 = Path(r'\\server-name\share\username\LongNameabc\Vacation\Photos')
+    t2 = stats.dir_stats[p2]
+    t2.directory = str(p2)
     t2.is_target_dir = True
     t2.dup_file_size = 37 * 2 ** 20
     t2.dup_file_count = 38
     t2.total_dir_count = 40
     t2.total_file_count = t2.dup_file_count + 1234
 
-    p = Path('/home/users/userb/files/music/workout')
-    t3 = stats.dir_stats[p]
-    t3.directory = str(p)
+    p3 = Path('/home/users/userb/files/music/workout')
+    t3 = stats.dir_stats[p3]
+    t3.directory = str(p3)
     t3.is_target_dir = True
     t3.dup_file_size = 1023
     t3.dup_file_count = 1
@@ -136,11 +137,12 @@ def test_report_from_stats(capsys):
     t3.total_file_count = t3.dup_file_count + 49
     t3.empty_dir_count = 2
     dd.print_report(stats)
-    expected_output = r"""    Duplicates      Directory
+
+    expected_output = rf"""    Duplicates      Directory
 ------------------  --------------------------------------------------------
-112.3K (123.1 MiB)  \home\users\someone\desktop\wallpaper
-    38    (37 MiB)  \\server-name\share\username\LongNameabc\Vacation\Photos
-     1    (1023 B)  \home\users\userb\files\music\workout
+112.3K (123.1 MiB)  {p1}
+    38    (37 MiB)  {p2}
+     1    (1023 B)  {p3}
 ------------------  --------------------------------------------------------
 112.3K (160.1 MiB)  Total
 
@@ -242,7 +244,6 @@ def test_readonly(tmpdir, remove_empty_dirs):
     rf2 = ro2.join('rf2')
     rf3 = ro2.join('rf3')
     all_ro_dirs = [ro1, ro2, ro3]
-    all_target_files = {tf1, tf2, tf3, tf4}
     all_ro_files = [rf1, rf2, rf3]
     run_dedup(all_target_dirs, all_ro_dirs, remove_empty_dirs)
     # files in readonly directories must never be deleted
@@ -260,29 +261,54 @@ def test_readonly(tmpdir, remove_empty_dirs):
         assert not td1.exists()
         # but td2 should not be removed
         assert td2.exists()
-    # none of the duplicate files in target dirs should still exist
-    expect_exists([tf1, tf3], False)
+    # tf1 should have been deleted because it is made a duplicate by read-only file rf1
+    assert not tf1.exists()
+    # exactly one of tf2 and tf3 should exist.  Exactly which was deleted depends on
+    # the order that os.walk reported them to dedup.walk_dirs().
+    assert tf2.exists() ^ tf3.exists()
 
 
 def test_abbrev():
     """Test file path abbreviation."""
-    long_path = r'\\server12\sharename\Misc. Stuff\Keep It\Funny Jokes I Heard Once'
-    width_results = [
-        (4, r'...e'),
-        (23, r'...y Jokes I Heard Once'),
-        (24, r'\\server12\sharename\...'),
-        (36, r'...\Keep It\Funny Jokes I Heard Once'),
-        (44, r'\\server12\sharename\Misc. Stuff\Keep It\...'),
-        (47, r'\\server12\sharename\Misc. Stuff\Keep It\Fun...'),
-        (49, r'...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
-        (50, r'\\...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
-        (57, r'\\server...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
-        (59, r'\\server12...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
-        (60, r'\\server12\...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
-        (61, r'\\server12\s...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
-        (64, r'\\server12\shar...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
-        (65, r'\\server12\sharename\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
-    ]
+    if os.name == 'nt':
+        long_path = r'\\server12\sharename\Misc. Stuff\Keep It\Funny Jokes I Heard Once'
+        width_results = [
+            (4, r'...e'),
+            (23, r'...y Jokes I Heard Once'),
+            (24, r'\\server12\sharename\...'),
+            (36, r'...\Keep It\Funny Jokes I Heard Once'),
+            (44, r'\\server12\sharename\Misc. Stuff\Keep It\...'),
+            (47, r'\\server12\sharename\Misc. Stuff\Keep It\Fun...'),
+            (49, r'...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
+            (50, r'\\...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
+            (57, r'\\server...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
+            (59, r'\\server12...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
+            (60, r'\\server12\...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
+            (61, r'\\server12\s...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
+            (64, r'\\server12\shar...\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
+            (65, r'\\server12\sharename\Misc. Stuff\Keep It\Funny Jokes I Heard Once'),
+        ]
+    else:
+        long_path = '/server12/sharename/Misc. Stuff/Keep It/Funny Jokes I Heard Once'
+        width_results = [
+            (4, '/...'),
+            (13, '/server12/...'),
+            (23, '/server12/sharename/...'),
+            (28, '.../Funny Jokes I Heard Once'),
+            (35, '/server12/sharename/Misc. Stuff/...'),
+            (36, '.../Keep It/Funny Jokes I Heard Once'),
+            (37, '/.../Keep It/Funny Jokes I Heard Once'),
+            (38, '/server12/.../Funny Jokes I Heard Once'),
+            (43, '/server12/sharename/Misc. Stuff/Keep It/...'),
+            (44, '/server12/sharename/Misc. Stuff/Keep It/F...'),
+            (55, '/server12/sharename/Misc. Stuff/Keep It/Funny Jokes ...'),
+            (56, '/server12/sharename/.../Keep It/Funny Jokes I Heard Once'),
+            (57, '/server12/sharename/M.../Keep It/Funny Jokes I Heard Once'),
+            (58, '/server12/.../Misc. Stuff/Keep It/Funny Jokes I Heard Once'),
+            (59, '/.../sharename/Misc. Stuff/Keep It/Funny Jokes I Heard Once'),
+            (60, '/s.../sharename/Misc. Stuff/Keep It/Funny Jokes I Heard Once'),
+            (64, '/server12/sharename/Misc. Stuff/Keep It/Funny Jokes I Heard Once'),
+        ]
     for max_width, expected_path in width_results:
         assert dd.abbrev_path(long_path, max_width) == expected_path
     with pytest.raises(ValueError):
